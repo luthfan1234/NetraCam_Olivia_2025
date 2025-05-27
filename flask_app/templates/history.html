@@ -1,0 +1,251 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<header class="mb-8">
+  <h1 class="text-2xl md:text-3xl font-bold text-white">
+    <i class="fa-solid fa-clock-rotate-left mr-3"></i>
+    <span class="text-green-400">Riwayat</span> Aktivitas
+  </h1>
+  <p class="text-green-100 mt-2">Lihat aktivitas dan riwayat lokasi masa lalu</p>
+</header>
+
+<div class="space-y-6">
+  <div class="doy-card rounded-xl p-6">
+    <div class="flex items-center justify-between mb-6">
+      <h2 class="text-sm font-medium text-gray-300">
+        <i class="fas fa-calendar text-green-400 mr-2"></i>LOG AKTIVITAS
+      </h2>
+      <div class="flex space-x-2">
+        <button onclick="loadHistory('today')" 
+                class="px-3 py-1 text-xs bg-gray-800 text-gray-300 rounded-full hover:bg-gray-700 transition-colors">Hari Ini</button>
+        <button onclick="loadHistory('week')" 
+                class="px-3 py-1 text-xs bg-gray-800 text-gray-300 rounded-full hover:bg-gray-700 transition-colors">Minggu Ini</button>
+        <button onclick="loadHistory('month')" 
+                class="px-3 py-1 text-xs bg-gray-800 text-gray-300 rounded-full hover:bg-gray-700 transition-colors">Bulan Ini</button>
+      </div>
+    </div>
+    
+    <!-- Loading indicator for activity log -->
+    <div id="activity-loading" class="flex justify-center items-center py-10">
+      <div class="text-center">
+        <div class="loading-spinner mx-auto mb-4"></div>
+        <p class="text-gray-400">Memuat riwayat aktivitas...</p>
+      </div>
+    </div>
+    
+    <!-- Activity log content -->
+    <div class="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar hidden" id="activity-log">
+      <!-- Activities will be populated here -->
+    </div>
+    
+    <!-- Error state -->
+    <div id="activity-error" class="hidden flex flex-col items-center justify-center p-10 text-center">
+      <i class="fas fa-exclamation-triangle text-yellow-500 text-3xl mb-4"></i>
+      <p class="text-white mb-2">Tidak dapat memuat riwayat aktivitas</p>
+      <button onclick="loadHistory(currentFilter)" class="px-4 py-2 bg-green-500 text-white rounded-lg mt-2 hover:bg-green-600 transition-colors">
+        Coba Lagi
+      </button>
+    </div>
+    
+    <!-- Empty state -->
+    <div id="activity-empty" class="hidden flex flex-col items-center justify-center p-10 text-center">
+      <i class="fas fa-calendar-xmark text-gray-500 text-3xl mb-4"></i>
+      <p class="text-gray-400 mb-2">Tidak ada aktivitas tercatat untuk periode ini</p>
+    </div>
+  </div>
+
+  <div class="doy-card rounded-xl p-6">
+    <div class="flex items-center justify-between mb-6">
+      <h2 class="text-sm font-medium text-gray-300">
+        <i class="fas fa-chart-line text-green-400 mr-2"></i>STATISTIK PERANGKAT
+      </h2>
+    </div>
+    
+    <!-- Loading indicator for stats -->
+    <div id="stats-loading" class="flex justify-center items-center py-10">
+      <div class="text-center">
+        <div class="loading-spinner mx-auto mb-4"></div>
+        <p class="text-gray-400">Memuat statistik perangkat...</p>
+      </div>
+    </div>
+    
+    <!-- Stats content -->
+    <div id="stats-content" class="hidden">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="p-4 bg-gray-800/50 rounded-lg text-center border border-green-500/30">
+          <div class="text-2xl font-bold text-white" id="uptime">--</div>
+          <div class="text-xs text-gray-400">Waktu Aktif</div>
+        </div>
+        <div class="p-4 bg-gray-800/50 rounded-lg text-center border border-green-500/30">
+          <div class="text-2xl font-bold text-white" id="wifi-strength">--</div>
+          <div class="text-xs text-gray-400">Kekuatan WiFi</div>
+        </div>
+        <div class="p-4 bg-gray-800/50 rounded-lg text-center border border-green-500/30">
+          <div class="text-2xl font-bold text-white" id="gps-updates">--</div>
+          <div class="text-xs text-gray-400">Update GPS</div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Stats error -->
+    <div id="stats-error" class="hidden flex flex-col items-center justify-center p-10 text-center">
+      <i class="fas fa-exclamation-triangle text-yellow-500 text-3xl mb-4"></i>
+      <p class="text-white mb-2">Tidak dapat memuat statistik perangkat</p>
+      <button onclick="updateStatistics()" class="px-4 py-2 bg-green-500 text-white rounded-lg mt-2 hover:bg-green-600 transition-colors">
+        Coba Lagi
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="mt-10 pt-6 border-t border-gray-700/30 text-center">
+  <p class="text-xs text-gray-500">
+    Riwayat dipantau dengan <i class="fas fa-heart text-red-400 mx-1"></i> oleh
+    <span class="signature">@doaibu</span>
+  </p>
+</div>
+
+<script>
+  // Track current filter for retries
+  let currentFilter = 'today';
+  
+  // Show loading states on page load
+  document.addEventListener('DOMContentLoaded', function() {
+    // Start loading both activity log and statistics
+    loadHistory('today');
+    updateStatistics();
+  });
+  
+  async function loadHistory(filter = 'today') {
+    // Update current filter for retries
+    currentFilter = filter;
+    
+    // Show loading, hide results and error
+    document.getElementById('activity-loading').classList.remove('hidden');
+    document.getElementById('activity-log').classList.add('hidden');
+    document.getElementById('activity-error').classList.add('hidden');
+    document.getElementById('activity-empty').classList.add('hidden');
+    
+    try {
+      const response = await fetch(`/api/activity-log?filter=${filter}`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to load history: ${response.status}`);
+      }
+      
+      const activities = await response.json();
+      
+      // Update UI based on results
+      if (activities && activities.length > 0) {
+        updateActivityLog(activities);
+        document.getElementById('activity-log').classList.remove('hidden');
+      } else {
+        document.getElementById('activity-empty').classList.remove('hidden');
+      }
+      
+      // Update active button state
+      document.querySelectorAll('button').forEach(btn => {
+        if (btn.textContent.toLowerCase().trim() === filter) {
+          btn.classList.add('bg-green-500', 'text-white');
+          btn.classList.remove('bg-gray-800', 'text-gray-300');
+        } else {
+          btn.classList.remove('bg-green-500', 'text-white');
+          btn.classList.add('bg-gray-800', 'text-gray-300');
+        }
+      });
+      
+    } catch (error) {
+      console.error('Failed to load history:', error);
+      document.getElementById('activity-error').classList.remove('hidden');
+      window.showToast('Gagal memuat riwayat aktivitas', 'error');
+    } finally {
+      // Always hide loading indicator
+      document.getElementById('activity-loading').classList.add('hidden');
+    }
+  }
+
+  function updateActivityLog(activities) {
+    const logContainer = document.getElementById('activity-log');
+    
+    if (!activities || activities.length === 0) {
+      logContainer.innerHTML = '';
+      document.getElementById('activity-empty').classList.remove('hidden');
+      return;
+    }
+    
+    logContainer.innerHTML = activities.map(activity => `
+        <div class="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-green-500/30">
+            <div class="flex items-center space-x-4">
+                <div class="w-2 h-2 bg-green-400 rounded-full"></div>
+                <div>
+                    <div class="text-sm text-white">${activity.title}</div>
+                    <div class="text-xs text-gray-400">${activity.details}</div>
+                </div>
+            </div>
+            <div class="text-xs text-gray-400">${activity.time}</div>
+        </div>
+    `).join('');
+  }
+
+  async function updateStatistics() {
+    // Show loading, hide content and error
+    document.getElementById('stats-loading').classList.remove('hidden');
+    document.getElementById('stats-content').classList.add('hidden');
+    document.getElementById('stats-error').classList.add('hidden');
+    
+    try {
+      const response = await fetch('/api/device-stats');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to load statistics: ${response.status}`);
+      }
+      
+      const stats = await response.json();
+      
+      // Update the statistics with new data
+      document.getElementById('uptime').textContent = stats.uptime;
+      document.getElementById('wifi-strength').textContent = stats.wifi_strength;
+      document.getElementById('gps-updates').textContent = stats.gps_updates;
+      
+      // Show content
+      document.getElementById('stats-content').classList.remove('hidden');
+      
+    } catch (error) {
+      console.error('Failed to fetch statistics:', error);
+      document.getElementById('stats-error').classList.remove('hidden');
+    } finally {
+      // Always hide loading indicator
+      document.getElementById('stats-loading').classList.add('hidden');
+    }
+  }
+
+  // Set up automatic refresh for statistics
+  setInterval(() => {
+    // Only refresh if the page is visible
+    if (document.visibilityState === 'visible') {
+      updateStatistics();
+    }
+  }, 30000);
+</script>
+
+<!-- Custom scrollbar styling -->
+<style>
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(23, 23, 23, 0.5);
+    border-radius: 4px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(34, 197, 94, 0.3);
+    border-radius: 4px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(34, 197, 94, 0.5);
+  }
+</style>
+{% endblock %}

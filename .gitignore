@@ -1,17 +1,16 @@
-# Ignore Python virtual environments
+# Lingkungan virtual
 venv/
 __pycache__/
 *.pyc
 
-# Ignore system files
-.DS_Store
-Thumbs.db
-
-# Ignore model weights or checkpoints
+# File besar dan hasil build
 *.pt
-*.pth
-*.ckpt
-
-# Ignore large data
+*.onnx
+*.dll
+*.lib
+*.pyd
 *.mp4
 *.zip
+
+# Folder runtime Flask
+instance/

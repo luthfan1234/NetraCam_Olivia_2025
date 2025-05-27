@@ -1,0 +1,286 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+{% endblock %}
+
+{% block content %}
+<header class="mb-8">
+  <h1 class="text-2xl md:text-3xl font-bold text-white">
+    Selamat datang di <span class="text-green-400">Pemantauan Lokasi</span>
+  </h1>
+  <p class="text-green-100 mt-2">Sistem pemantauan lokasi real-time untuk bantuan visual</p>
+</header>
+
+<!-- Device Status Cards -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+  <div class="doy-card rounded-xl p-4">
+    <div class="flex flex-col items-center">
+      <i class="fas fa-wifi text-2xl text-green-400 mb-2"></i>
+      <h3 class="text-sm font-medium text-gray-300">Status Wi-Fi</h3>
+      <p id="wifi-status" class="text-white font-bold">Memuat...</p>
+    </div>
+  </div>
+  
+  <div class="doy-card rounded-xl p-4">
+    <div class="flex flex-col items-center">
+      <i class="fas fa-signal text-2xl text-green-400 mb-2"></i>
+      <h3 class="text-sm font-medium text-gray-300">Kekuatan Sinyal</h3>
+      <p id="rssi-value" class="text-white font-bold">Memuat...</p>
+    </div>
+  </div>
+  
+  <div class="doy-card rounded-xl p-4">
+    <div class="flex flex-col items-center">
+      <i class="fas fa-satellite-dish text-2xl text-green-400 mb-2"></i>
+      <h3 class="text-sm font-medium text-gray-300">Status GPS</h3>
+      <p id="gps-status" class="text-white font-bold">Memuat...</p>
+    </div>
+  </div>
+  
+  <div class="doy-card rounded-xl p-4">
+    <div class="flex flex-col items-center">
+      <i class="fas fa-clock text-2xl text-green-400 mb-2"></i>
+      <h3 class="text-sm font-medium text-gray-300">Terakhir Sinkron</h3>
+      <p id="last-sync" class="text-white font-bold">Memuat...</p>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <!-- Map Card -->
+  <div class="doy-card rounded-xl overflow-hidden p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-medium text-gray-300">
+        <i class="fas fa-map-location-dot text-green-400 mr-2"></i>PETA LOKASI
+      </h2>
+      <div class="flex items-center">
+        <div class="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+        <span class="text-xs text-green-400">Live</span>
+      </div>
+    </div>
+    
+    <!-- Map loading state -->
+    <div id="map-loading" class="w-full h-[400px] bg-gray-800 rounded-lg border border-green-500/30 flex items-center justify-center">
+      <div class="text-center">
+        <div class="loading-spinner mx-auto mb-4"></div>
+        <p class="text-gray-400">Memuat peta...</p>
+      </div>
+    </div>
+    
+    <!-- Map container -->
+    <div id="map" class="w-full h-[400px] bg-gray-800 rounded-lg border border-green-500/30 hidden"></div>
+    
+    <!-- Map error state -->
+    <div id="map-error" class="w-full h-[400px] bg-gray-800 rounded-lg border border-green-500/30 hidden flex flex-col items-center justify-center p-4 text-center">
+      <i class="fas fa-exclamation-triangle text-yellow-500 text-3xl mb-4"></i>
+      <p class="text-white mb-2">Tidak dapat memuat peta</p>
+      <button onclick="initMap()" class="px-4 py-2 bg-green-500 text-white rounded-lg mt-2 hover:bg-green-600 transition-colors">
+        Coba Lagi
+      </button>
+    </div>
+  </div>
+
+  <!-- Camera Card -->
+  <div class="doy-card rounded-xl p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-medium text-gray-300">
+        <i class="fas fa-video text-green-400 mr-2"></i>TAMPILAN KAMERA
+      </h2>
+      <div class="flex items-center">
+        <div class="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+        <span class="text-xs text-green-400">Streaming</span>
+      </div>
+    </div>
+    
+    <!-- Camera loading state -->
+    <div id="camera-loading" class="rounded-lg overflow-hidden border border-green-500/30 h-[400px] flex items-center justify-center bg-gray-800">
+      <div class="text-center">
+        <div class="loading-spinner mx-auto mb-4"></div>
+        <p class="text-gray-400">Memuat kamera...</p>
+      </div>
+    </div>
+    
+    <!-- Camera feed -->
+    <div class="rounded-lg overflow-hidden border border-green-500/30">
+      <img 
+        src="{{ url_for('video_feed') }}" 
+        alt="Live Detection Feed" 
+        class="w-full h-auto shadow-lg"
+        id="camera-feed"
+        onload="document.getElementById('camera-loading').style.display='none'"
+        onerror="handleCameraError()"
+      />
+    </div>
+    
+    <!-- Camera error state -->
+    <div id="camera-error" class="rounded-lg overflow-hidden border border-green-500/30 h-[400px] hidden flex flex-col items-center justify-center p-4 text-center bg-gray-800">
+      <i class="fas fa-video-slash text-red-500 text-3xl mb-4"></i>
+      <p class="text-white mb-2">Tidak dapat memuat kamera</p>
+      <button onclick="reloadCameraFeed()" class="px-4 py-2 bg-green-500 text-white rounded-lg mt-2 hover:bg-green-600 transition-colors">
+        Coba Lagi
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="mt-10 pt-6 border-t border-gray-700/30 text-center">
+  <p class="text-xs text-gray-500">
+    Dashboard ini dibuat dengan <i class="fas fa-heart text-red-400 mx-1"></i> oleh
+    <span class="signature">@doaibu</span>
+  </p>
+</div>
+
+<script>
+  let marker;
+  let map;
+  let mapInitialized = false;
+  
+  document.addEventListener('DOMContentLoaded', function() {
+    // Show initial loading state
+    window.showLoading();
+    
+    // Initialize components and hide loading when done
+    Promise.all([initMap(), updateDeviceStatus()])
+      .then(() => {
+        window.hideLoading();
+        // Set up refresh intervals
+        setInterval(updateLocation, 2000);
+        setInterval(updateDeviceStatus, 3000);
+      })
+      .catch(error => {
+        window.hideLoading();
+        console.error("Dashboard initialization error:", error);
+        window.showToast("Beberapa komponen gagal dimuat. Periksa koneksi anda.", "warning");
+      });
+  });
+
+  async function initMap() {
+    try {
+      if (mapInitialized) return map;
+      
+      // Show map loading state
+      document.getElementById('map-loading').style.display = 'flex';
+      document.getElementById('map').style.display = 'none';
+      document.getElementById('map-error').style.display = 'none';
+      
+      const lat = {{ lat }};
+      const lon = {{ lon }};
+      
+      map = L.map('map').setView([lat, lon], 17);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19
+      }).addTo(map);
+      
+      // Add initial marker
+      marker = L.marker([lat, lon]).addTo(map);
+      
+      // Hide loading, show map
+      document.getElementById('map-loading').style.display = 'none';
+      document.getElementById('map').style.display = 'block';
+      
+      mapInitialized = true;
+      return map;
+      
+    } catch (error) {
+      console.error("Map initialization error:", error);
+      
+      // Hide loading, show error
+      document.getElementById('map-loading').style.display = 'none';
+      document.getElementById('map').style.display = 'none';
+      document.getElementById('map-error').style.display = 'flex';
+      
+      throw error;
+    }
+  }
+
+  async function updateLocation() {
+    try {
+      if (!map || !marker) {
+        await initMap();
+      }
+      
+      const gpsResponse = await fetch('/gps');
+      
+      if (!gpsResponse.ok) {
+        throw new Error(`GPS API returned ${gpsResponse.status}`);
+      }
+      
+      const gpsData = await gpsResponse.json();
+      
+      if (gpsData.lat && gpsData.lon) {
+        // Update marker and map only if coordinates are valid
+        if (gpsData.lat !== -7.556 || gpsData.lon !== 110.829) {
+          marker.setLatLng([gpsData.lat, gpsData.lon]);
+          map.panTo([gpsData.lat, gpsData.lon]);
+        }
+      }
+    } catch (error) {
+      console.error("Error updating location:", error);
+    }
+  }
+
+  async function updateDeviceStatus() {
+    try {
+      const response = await fetch('/api/device-status');
+      
+      if (!response.ok) {
+        throw new Error(`Status API returned ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      document.getElementById('wifi-status').textContent = data.wifi_status;
+      document.getElementById('rssi-value').textContent = `${data.rssi} dBm`;
+      document.getElementById('gps-status').textContent = data.gps_status;
+      document.getElementById('last-sync').textContent = data.last_sync;
+      
+      // Update status colors
+      const statusElements = ['wifi-status', 'rssi-value', 'gps-status', 'last-sync'];
+      statusElements.forEach(id => {
+        const element = document.getElementById(id);
+        const isGood = data[id.replace('-', '_')] === 'Connected' || 
+                      data[id.replace('-', '_')] === 'Valid' ||
+                      (id === 'rssi-value' && parseInt(data.rssi) > -70);
+        
+        element.classList.remove(isGood ? 'text-red-400' : 'text-green-400');
+        element.classList.add(isGood ? 'text-green-400' : 'text-red-400');
+      });
+    } catch (error) {
+      console.error('Error updating device status:', error);
+      
+      // Show error state in the status cards
+      const statusElements = ['wifi-status', 'rssi-value', 'gps-status', 'last-sync'];
+      statusElements.forEach(id => {
+        const element = document.getElementById(id);
+        if (element.textContent === 'Memuat...') {
+          element.textContent = 'Tidak tersedia';
+          element.classList.remove('text-green-400', 'text-white');
+          element.classList.add('text-red-400');
+        }
+      });
+    }
+  }
+  
+  function handleCameraError() {
+    document.getElementById('camera-loading').style.display = 'none';
+    document.getElementById('camera-feed').style.display = 'none';
+    document.getElementById('camera-error').style.display = 'flex';
+    window.showToast('Kamera tidak tersedia', 'error');
+  }
+  
+  function reloadCameraFeed() {
+    // Show loading state
+    document.getElementById('camera-loading').style.display = 'flex';
+    document.getElementById('camera-error').style.display = 'none';
+    
+    // Reload the image with a cache-busting parameter
+    const img = document.getElementById('camera-feed');
+    img.src = `{{ url_for('video_feed') }}?t=${new Date().getTime()}`;
+    img.style.display = 'block';
+  }
+</script>
+{% endblock %}
