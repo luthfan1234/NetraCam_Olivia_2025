@@ -1,0 +1,17 @@
+# Ignore Python virtual environments
+venv/
+__pycache__/
+*.pyc
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore model weights or checkpoints
+*.pt
+*.pth
+*.ckpt
+
+# Ignore large data
+*.mp4
+*.zip

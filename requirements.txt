@@ -1,0 +1,26 @@
+# Web Framework
+Flask==2.3.3
+Flask-Login==0.6.2
+Flask-SQLAlchemy==3.1.1
+Flask-WTF==1.2.1
+Werkzeug==2.3.7
+
+# Computer Vision & AI
+ultralytics==8.0.145
+opencv-python-headless==4.8.0.76
+numpy==1.24.3
+
+# HTTP & Networking
+requests==2.31.0
+urllib3==2.0.4
+
+# Database
+SQLAlchemy==2.0.20
+
+# Date/Time Handling
+python-dateutil==2.8.2
+
+# Utilities
+Pillow==10.0.0
+pydantic==2.3.0
+click==8.1.7
