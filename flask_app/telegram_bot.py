@@ -10,8 +10,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Konfigurasi Bot
-BOT_TOKEN = '7579890796:AAFz8b_Jx9da_4dAvWxhIuCuLGRHlKtQ5nE'  # Ganti dengan token bot Anda
-CHAT_ID = '1193580325'  # Ganti dengan chat ID tujuan
+BOT_TOKEN = ''  # Ganti dengan token bot Anda
+CHAT_ID = ''  # Ganti dengan chat ID tujuan
 BASE_URL = f'https://api.telegram.org/bot{BOT_TOKEN}'
 
 # Interval default
