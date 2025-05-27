@@ -1,4 +1,4 @@
-# Kacamata Tunanetra Tanpa MQTT
+# Kacamata Tunanetra - Doa Ibu Universitas Sebelas Maret
 
 Proyek ini adalah implementasi sistem kacamata pintar untuk tunanetra tanpa menggunakan protokol MQTT. Sistem menggunakan ESP32-CAM untuk menangkap gambar, modul GPS (Ublox NEO-6M) untuk pelacakan lokasi, DFPlayer Mini untuk output suara, serta server Flask dengan YOLOv8 untuk deteksi objek dan dashboard web.
 
