@@ -25,22 +25,41 @@ class ActivityLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(100), nullable=False)
     details = db.Column(db.String(255))
-    type = db.Column(db.String(50))  # 'wifi', 'gps', 'detection', etc.
+    type = db.Column(db.String(50))  # 'wifi', 'gps', 'detection', 'system', etc.
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
         return {
+            'id': self.id,
             'title': self.title,
             'details': self.details,
             'color': self.get_color(),
-            'time': self.timestamp.strftime('%H:%M:%S')
+            'icon': self.get_icon(),
+            'type': self.type,
+            'time': self.timestamp.strftime('%H:%M:%S'),
+            'date': self.timestamp.strftime('%d/%m/%Y')
         }
     
     def get_color(self):
         colors = {
-            'wifi': 'green',
-            'gps': 'blue',
+            'wifi': 'blue',
+            'gps': 'green',
             'detection': 'purple',
+            'telegram': 'blue',
+            'settings': 'yellow',
+            'system': 'gray',
             'error': 'red'
         }
         return colors.get(self.type, 'gray')
+        
+    def get_icon(self):
+        icons = {
+            'wifi': 'fa-wifi',
+            'gps': 'fa-location-dot',
+            'detection': 'fa-eye',
+            'telegram': 'fa-paper-plane',
+            'settings': 'fa-gear',
+            'system': 'fa-microchip',
+            'error': 'fa-triangle-exclamation'
+        }
+        return icons.get(self.type, 'fa-circle-info')

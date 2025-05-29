@@ -58,9 +58,10 @@ def send_location_and_image(lat, lon, image_url=None):
     global last_location_sent
     current_time = time.time()
     
-    # Periksa apakah sudah waktunya untuk mengirim update lokasi (setiap 5 menit)
-    if current_time - last_location_sent < current_interval:
-        logger.info(f"⏳ Menunggu interval lokasi ({current_interval}s), sisa waktu: {int(current_interval - (current_time - last_location_sent))}s")
+    # Periksa apakah sudah waktunya untuk mengirim update lokasi
+    time_since_last = current_time - last_location_sent
+    if time_since_last < current_interval:
+        logger.info(f"⏳ Menunggu interval ({current_interval}s), sisa: {int(current_interval - time_since_last)}s")
         return False
         
     try:
@@ -69,40 +70,51 @@ def send_location_and_image(lat, lon, image_url=None):
         location_data = {
             'chat_id': CHAT_ID,
             'latitude': lat,
-            'longitude': lon,
-            'caption': f"📍 Location: {lat}, {lon}"  # Add caption to location
+            'longitude': lon
         }
-        location_response = requests.post(location_url, json=location_data)
-        location_response.raise_for_status()
+        location_response = requests.post(location_url, data=location_data)
+        
+        if not location_response.ok:
+            logger.error(f"❌ Failed to send location: {location_response.text}")
+            return False
+            
+        logger.info(f"✅ Location sent: {lat}, {lon}")
 
         # Kirim gambar jika tersedia
         if image_url:
-            img_response = requests.get(image_url, timeout=5)  # Added timeout
-            if img_response.status_code == 200:
-                files = {
-                    'photo': ('snapshot.jpg', BytesIO(img_response.content), 'image/jpeg')
-                }
-                photo_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-                photo_data = {
-                    'chat_id': CHAT_ID,
-                    'caption': f"📸 Tangkapan Kamera\n📍 Lokasi: {lat}, {lon}\n⏰ Waktu: {time.strftime('%H:%M:%S')}"
-                }
-                photo_response = requests.post(photo_url, data=photo_data, files=files)
+            try:
+                # Gunakan timeout yang lebih lama
+                img_response = requests.get(image_url, timeout=10)
                 
-                if not photo_response.ok:
-                    logger.error(f"Failed to send photo: {photo_response.text}")
-                    return False
+                if img_response.status_code == 200 and len(img_response.content) > 100:
+                    files = {
+                        'photo': ('snapshot.jpg', BytesIO(img_response.content), 'image/jpeg')
+                    }
+                    photo_url = f"{BASE_URL}/sendPhoto"
+                    photo_data = {
+                        'chat_id': CHAT_ID,
+                        'caption': f"📸 Tangkapan Kamera\n📍 Lokasi: {lat}, {lon}\n⏰ Waktu: {time.strftime('%H:%M:%S')}"
+                    }
+                    photo_response = requests.post(photo_url, data=photo_data, files=files)
                     
-                logger.info(f"✅ Sent location and photo to Telegram")
-                return True
+                    if not photo_response.ok:
+                        logger.error(f"❌ Failed to send photo: {photo_response.text}")
+                        # Tetap return True karena lokasi berhasil dikirim
+                    else:
+                        logger.info("✅ Photo sent successfully")
+                else:
+                    logger.error(f"❌ Failed to get image from ESP32: Status {img_response.status_code}, Size: {len(img_response.content) if img_response.ok else 0} bytes")
+            except Exception as e:
+                logger.error(f"❌ Error getting or sending image: {str(e)}")
+                # Tetap return True karena lokasi berhasil dikirim
                 
         # Update waktu terakhir kirim lokasi
         last_location_sent = current_time
-        logger.info(f"✅ Lokasi berhasil dikirim pada {time.strftime('%H:%M:%S')}. Pengiriman berikutnya dalam {current_interval} detik.")
+        logger.info(f"✅ Update sent at {time.strftime('%H:%M:%S')}. Next update in {current_interval} seconds.")
         return True
 
     except Exception as e:
-        logger.error(f"Gagal mengirim update ke Telegram: {str(e)}")
+        logger.error(f"❌ Failed to send Telegram update: {str(e)}")
         return False
 
 def update_interval(new_interval):
@@ -129,11 +141,29 @@ def get_current_interval():
 
 def update_intervals(location_interval, detection_interval):
     """Update kedua interval sekaligus."""
+    global current_interval, DETECTION_INTERVAL, last_location_sent
+    
     try:
-        update_interval(location_interval)
-        # Tambahkan logika untuk detection_interval jika diperlukan
-        logger.info(f"Semua interval diperbarui - Lokasi: {location_interval}s, Deteksi: {detection_interval}s")
+        # Validasi interval lokasi
+        location_interval = int(location_interval)
+        if location_interval < 60:  # Minimal 1 menit
+            location_interval = 60
+            
+        # Validasi interval deteksi
+        detection_interval = int(detection_interval)
+        if detection_interval < 10:  # Minimal 10 detik
+            detection_interval = 10
+            
+        # Update interval
+        current_interval = location_interval
+        DETECTION_INTERVAL = detection_interval
+        
+        # Reset last_location_sent agar interval baru berlaku segera
+        last_location_sent = 0
+        last_detection_sent = 0
+        
+        logger.info(f"✅ Intervals updated - Location: {location_interval}s, Detection: {detection_interval}s")
         return True
     except Exception as e:
-        logger.error(f"Gagal memperbarui interval: {str(e)}")
+        logger.error(f"❌ Failed to update intervals: {str(e)}")
         return False

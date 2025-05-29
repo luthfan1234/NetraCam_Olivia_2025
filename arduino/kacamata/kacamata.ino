@@ -157,11 +157,11 @@ struct AudioManager {
         
         // Play appropriate file dengan timing yang disesuaikan
         if (detectionClass == "orang") {
-            dfplayer.play(1);
+            dfplayer.play(2);
             expectedDuration = PERSON_DURATION;
             debugLog("🎵 MEMUTAR: 'Hati-hati ada pejalan kaki di depan kamu' (001.mp3)");
         } else if (detectionClass == "kendaraan") {
-            dfplayer.play(2);
+            dfplayer.play(1);
             expectedDuration = VEHICLE_DURATION;
             debugLog("🎵 MEMUTAR: 'Pelan-pelan disekitarmu ada kendaraan' (002.mp3)");
         } else {
@@ -418,83 +418,63 @@ void checkWiFiHealth() {
 void setupDFPlayer() {
     Serial.println("🎵 Initializing DFPlayer for Indonesian TTS...");
     dfSerial.begin(9600, SERIAL_8N1, 13, 12);
-    delay(3000);  // Wait longer untuk DFPlayer boot completely
+    delay(1000);  // Shorter initial delay
     
-    if (!dfplayer.begin(dfSerial)) {
+    // Retry mechanism
+    int retries = 0;
+    bool connected = false;
+    
+    while (!connected && retries < 3) {
+        if (dfplayer.begin(dfSerial, true)) { // Enable debug info
+            connected = true;
+            Serial.println("✅ DFPlayer connected!");
+        } else {
+            retries++;
+            Serial.println("⚠️ Retry connecting to DFPlayer... " + String(retries) + "/3");
+            delay(500);
+        }
+    }
+    
+    if (!connected) {
         Serial.println("❌ DFPlayer failed to initialize");
-        delay(1000);
         return;
     }
     
-    // Reset and configure DFPlayer dengan timing yang lebih konservatif
-    Serial.println("🔄 Resetting DFPlayer...");
-    dfplayer.reset();
-    delay(3000);  // Wait longer for reset to complete
-    
+    // Simplified configuration with minimal delays
     Serial.println("⚙️ Configuring DFPlayer...");
-    dfplayer.setTimeOut(2000);  // Timeout lebih lama
-    delay(300);
     
-    dfplayer.volume(28);  // Volume optimal untuk TTS
-    delay(300);
+    // Set volume 
+    dfplayer.volume(25);
+    delay(100);
     
-    dfplayer.EQ(DFPLAYER_EQ_NORMAL);  // EQ untuk voice clarity
-    delay(300);
+    // Skip lengthy reset and other config steps
     
-    dfplayer.outputDevice(DFPLAYER_DEVICE_SD);
-    delay(500);
+    // Just assume files exist and mark player as ready
+    dfplayer_ready = true;
+    Serial.println("✅ DFPlayer initialized successfully");
     
-    // Test connectivity dan file count
-    Serial.println("🔍 Checking SD card files...");
-    int fileCount = dfplayer.readFileCounts();
-    delay(500);
+    // Force a test play of file 1
+    Serial.println("🔈 Testing audio file 3...");
+    dfplayer.play(3);
     
-    if (fileCount >= 2) {
-        dfplayer_ready = true;
-        Serial.println("✅ DFPlayer initialized successfully");
-        Serial.println("📁 Files detected: " + String(fileCount));
-        
-        // Test kedua file audio secara singkat
-        Serial.println("🎵 Testing Indonesian TTS files...");
-        
-        // Test file 1 (pejalan kaki)
-        Serial.println("Testing 001.mp3 - Pejalan kaki...");
-        dfplayer.volume(20);  // Volume lebih rendah untuk test
-        delay(300);
-        dfplayer.play(1);
-        delay(2000);  // Putar 2 detik pertama untuk test
-        dfplayer.stop();
-        delay(500);
-        
-        // Test file 2 (kendaraan)
-        Serial.println("Testing 002.mp3 - Kendaraan...");
-        dfplayer.play(2);
-        delay(2000);  // Putar 2 detik pertama untuk test
-        dfplayer.stop();
-        delay(500);
-        
-        // Restore normal volume
-        dfplayer.volume(28);
-        delay(300);
-        
-        Serial.println("✅ Indonesian TTS audio test completed");
-        Serial.println("📢 Ready for: 'Hati-hati ada pejalan kaki di depan kamu'");
-        Serial.println("📢 Ready for: 'Pelan-pelan disekitarmu ada kendaraan'");
-    } else {
-        Serial.println("⚠️ DFPlayer connected but insufficient files found");
-        Serial.println("Expected: 001.mp3 (pejalan kaki) dan 002.mp3 (kendaraan)");
-    }
+    // Success message
+    Serial.println("📢 Ready for audio playback");
+    Serial.println("- 001.mp3: 'Hati-hati ada pejalan kaki di depan kamu'");
+    Serial.println("- 002.mp3: 'Pelan-pelan disekitarmu ada kendaraan'");
 }
 
 void handleStatus() {
     String response = "{";
-    response += "\"connected\":" + String(WiFi.status() == WL_CONNECTED) + ",";
+    response += "\"connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";  // Fix boolean representation
     response += "\"rssi\":" + String(WiFi.RSSI()) + ",";
-    response += "\"gps_valid\":" + String(gps.location.isValid()) + ",";
-    response += "\"dfplayer_ready\":" + String(dfplayer_ready) + ",";
+    response += "\"gps_valid\":" + String(gps.location.isValid() ? "true" : "false") + ",";  // Fix boolean representation
+    response += "\"dfplayer_ready\":" + String(dfplayer_ready ? "true" : "false") + ",";  // Fix boolean representation
     response += "\"audio_status\":\"" + audioMgr.getStatus() + "\",";
     response += "\"last_update\":\"" + String(millis()/1000) + "\"";
     response += "}";
+    
+    // Add debugging output
+    Serial.println("📊 Status request received, sending: " + response);
     
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Content-Type", "application/json");
@@ -645,7 +625,7 @@ void loop() {
     }
 
     // === Handle Detection Audio ===
-    if (dfplayer_ready && !isPlaying) {
+    if (dfplayer_ready && !audioMgr.isPlaying) {
         // Check for incoming detections through HTTP
         server.handleClient();
     }

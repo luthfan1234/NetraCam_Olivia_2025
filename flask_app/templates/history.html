@@ -176,7 +176,9 @@
     logContainer.innerHTML = activities.map(activity => `
         <div class="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-green-500/30">
             <div class="flex items-center space-x-4">
-                <div class="w-2 h-2 bg-green-400 rounded-full"></div>
+                <div class="h-8 w-8 flex items-center justify-center rounded-full bg-${activity.color || 'gray'}-500/20">
+                  <i class="fas ${activity.icon || 'fa-circle-info'} text-${activity.color || 'gray'}-400"></i>
+                </div>
                 <div>
                     <div class="text-sm text-white">${activity.title}</div>
                     <div class="text-xs text-gray-400">${activity.details}</div>
@@ -185,6 +187,9 @@
             <div class="text-xs text-gray-400">${activity.time}</div>
         </div>
     `).join('');
+    
+    // Show the activity log after updating
+    logContainer.classList.remove('hidden');
   }
 
   async function updateStatistics() {

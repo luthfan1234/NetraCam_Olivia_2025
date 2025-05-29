@@ -24,11 +24,13 @@ from telegram_bot import (
 )
 
 # Global variables
-ESP_IP = "192.168.175.173"
+ESP_IP = "192.168.130.173"  # Update this to match your ESP32's actual IP address
 last_status_check = datetime.now()
 cached_status = None
 STATUS_CACHE_DURATION = timedelta(minutes=2)
 CONF_THRESHOLD = 0.5  # Default confidence threshold for detections
+DEFAULT_LAT = -7.5594794
+DEFAULT_LON = 110.856853464304
 
 app = Flask(__name__)
 app.config.update({
@@ -160,11 +162,16 @@ def periodic_telegram_update():
     while True:
         try:
             lat, lon = latest_gps()
-            if lat != -7.5594794 or lon != 110.856853464304:  # Only send if GPS is valid (not default UNS coordinates)
+            # Hanya kirim jika GPS valid (bukan koordinat default UNS)
+            if lat != DEFAULT_LAT or lon != DEFAULT_LON:
+                # Ambil gambar dari ESP32
                 image_url = f"http://{ESP_IP}/cam-hi.jpg"
+                
+                # Mencoba kirim lokasi dan gambar
                 success = send_location_and_image(lat, lon, image_url)
+                
                 if success:
-                    print(f"📍 Sent update to Telegram: {lat}, {lon}")
+                    print(f"✅ Telegram update sent: Coordinates {lat}, {lon}")
                     # Log aktivitas
                     try:
                         with app.app_context():
@@ -172,54 +179,74 @@ def periodic_telegram_update():
                     except Exception as e:
                         print(f"❌ Error logging activity: {e}")
                 else:
-                    print("⚠️ Belum waktunya untuk mengirim update Telegram")
+                    # Periksa interval dan tampilkan informasi sisa waktu
+                    interval = get_current_interval()
+                    print(f"⏳ Telegram update scheduled every {interval}s - Will send next update when interval elapses")
+            else:
+                print("⚠️ GPS coordinates invalid, skipping Telegram update")
+                
         except Exception as e:
-            print(f"❌ Error in periodic update: {e}")
-        time.sleep(60)  # Check every 60 seconds
+            print(f"❌ Error in periodic Telegram update: {e}")
+            
+        # Tunggu 30 detik sebelum mencoba lagi
+        time.sleep(30)  # Cek lebih sering (30 detik)
 
 @app.route('/api/device-status')
 def device_status():
     global last_status_check, cached_status
     current_time = datetime.now()
     
-    try:
-        # Get WiFi and system status from ESP32
-        wifi_response = requests.get(f"http://{ESP_IP}/status", timeout=5)
-        if wifi_response.status_code == 200:
-            esp_status = wifi_response.json()
+    # Only request fresh data if cache is expired
+    if cached_status is None or (current_time - last_status_check) > STATUS_CACHE_DURATION:
+        try:
+            # Get WiFi and system status from ESP32
+            print(f"Fetching device status from http://{ESP_IP}/status")  # Add debug output
+            wifi_response = requests.get(f"http://{ESP_IP}/status", timeout=5)  # Increase timeout
+            if wifi_response.status_code == 200:
+                esp_status = wifi_response.json()
+                
+                # Get GPS data
+                lat, lon = latest_gps()
+                has_gps = lat != -7.5594794 or lon != 110.856853464304
+                
+                # Update status data
+                status_data = {
+                    "wifi_status": "Connected" if esp_status.get('connected', False) else "Disconnected",
+                    "rssi": esp_status.get('rssi', 0),
+                    "gps_status": "Valid" if has_gps else "No Fix",
+                    "last_sync": current_time.strftime("%H:%M:%S"),
+                    "last_update": int(current_time.timestamp())
+                }
+                
+                # Cache the new status
+                cached_status = status_data
+                last_status_check = current_time
+                
+                # Log status update for activity history
+                log_activity('Device Status', f"WiFi: {status_data['wifi_status']}, GPS: {status_data['gps_status']}", 'system')
+                
+                print(f"Device status updated successfully: {status_data}")  # Add debug output
+                return jsonify(status_data)
+            else:
+                print(f"Error response from ESP32: {wifi_response.status_code}")  # Add debug output
+                
+        except Exception as e:
+            print(f"Error getting device status: {str(e)}")
             
-            # Get GPS data
-            lat, lon = latest_gps()
-            has_gps = lat != -7.556 or lon != 110.829
-            
-            # Update status data
-            status_data = {
-                "wifi_status": "Connected" if esp_status.get('connected') else "Disconnected",
-                "rssi": esp_status.get('rssi', 0),
-                "gps_status": "Valid" if has_gps else "No Fix",
-                "last_sync": current_time.strftime("%H:%M:%S")
-            }
-            
-            # Cache the new status
-            cached_status = status_data
-            last_status_check = current_time
-            
-            return jsonify(status_data)
-            
-    except Exception as e:
-        print(f"Error getting device status: {str(e)}")
-        
-    # If we get here, either there was an error or the cache was invalid
+    # If we get here, either there was an error or we're using cache
     if cached_status:
         return jsonify(cached_status)
         
     # Return default status if no cache available
-    return jsonify({
+    default_status = {
         "wifi_status": "Unknown",
         "rssi": 0,
         "gps_status": "Unknown",
-        "last_sync": "Never"
-    })
+        "last_sync": "Never",
+        "last_update": int(current_time.timestamp())
+    }
+    
+    return jsonify(default_status)
 
 @app.route('/api/current-settings')
 @login_required
@@ -240,12 +267,15 @@ def get_current_settings():
     })
 
 def log_activity(title, details, type='info'):
+    """Log an activity to the database for history tracking"""
     try:
+        # Create a new activity log entry
         activity = ActivityLog(title=title, details=details, type=type)
         db.session.add(activity)
         db.session.commit()
+        print(f"✅ Activity logged: {title} ({type})")
     except Exception as e:
-        print(f"Error logging activity: {e}")
+        print(f"❌ Error logging activity: {e}")
         db.session.rollback()
 
 @app.route('/api/activity-log')
@@ -283,8 +313,13 @@ app.start_time = datetime.now()
 @login_required
 def get_device_stats():
     try:
-        status = device_status().get_json()
+        # Get current device status
+        status_response = requests.get(f"http://{request.host_url.rstrip('/')}/api/device-status", timeout=3)
+        status = status_response.json() if status_response.ok else {}
+        
+        # Calculate uptime
         uptime = datetime.now() - app.start_time
+        uptime_str = str(timedelta(seconds=int(uptime.total_seconds())))
         
         # Get detection count for last 24 hours
         detection_count = ActivityLog.query\
@@ -292,17 +327,25 @@ def get_device_stats():
             .filter(ActivityLog.timestamp >= datetime.now() - timedelta(days=1))\
             .count()
         
+        # Get GPS update count
+        gps_updates = ActivityLog.query\
+            .filter(ActivityLog.type == 'gps')\
+            .filter(ActivityLog.timestamp >= datetime.now() - timedelta(days=1))\
+            .count()
+            
         return jsonify({
-            'uptime': str(timedelta(seconds=int(uptime.total_seconds()))),
-            'wifi_strength': f"{status['rssi']} dBm",
-            'gps_updates': f"{detection_count} detections/24h"
+            'uptime': uptime_str,
+            'wifi_strength': f"{status.get('rssi', '--')} dBm",
+            'gps_updates': f"{gps_updates} updates/24h",
+            'detection_count': detection_count
         })
     except Exception as e:
         print(f"Error getting device stats: {e}")
         return jsonify({
             'uptime': '--',
             'wifi_strength': '--',
-            'gps_updates': '--'
+            'gps_updates': '--',
+            'detection_count': 0
         })
 
 @app.route('/api/settings', methods=['GET'])
@@ -367,17 +410,21 @@ def update_detection_settings():
 @login_required
 def update_notification_settings():
     try:
-        telegram_interval = int(request.form.get('telegram_interval'))
-        detection_interval = int(request.form.get('detection_interval', 10))
+        telegram_interval = int(request.form.get('telegram_interval', 300))
+        detection_interval = int(request.form.get('detection_interval', 60))
         
-        # Update telegram intervals menggunakan fungsi baru
+        print(f"Updating notification settings - Telegram: {telegram_interval}s, Detection: {detection_interval}s")
+        
+        # Update telegram intervals menggunakan fungsi dari telegram_bot.py
         if update_intervals(telegram_interval, detection_interval):
-            log_activity('Notification Settings Updated', 
-                        f'Location: {telegram_interval}s, Detection: {detection_interval}s', 
+            log_activity('Pengaturan Notifikasi', 
+                        f'Lokasi: {telegram_interval}s, Deteksi: {detection_interval}s', 
                         'settings')
-            return jsonify({'message': 'Settings updated successfully'})
-        return jsonify({'error': 'Failed to update intervals'}), 400
+            return jsonify({'message': 'Pengaturan berhasil diperbarui'})
+        
+        return jsonify({'error': 'Gagal memperbarui interval'}), 400
     except Exception as e:
+        print(f"Error updating notification settings: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/telegram-interval', methods=['POST'])

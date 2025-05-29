@@ -5,6 +5,7 @@ import requests
 import os
 from pathlib import Path
 import time
+from telegram_bot import send_telegram_alert
 
 # Get absolute path to model file
 MODEL_PATH = 'D:/KULIAH UNS/OLIVIA/KACAMATA_TN/flask_app/best.pt'
@@ -22,7 +23,7 @@ except Exception as e:
     raise Exception(f"Failed to load YOLO model: {str(e)}")
 CONF_THRESHOLD = 0.5
 # Update ESP settings to match GPS routes
-ESP_IP = "192.168.175.173"  # Make sure this matches your ESP32's IP
+ESP_IP = "192.168.130.173"
 TIMEOUT = 5  # Increased timeout
 MAX_RETRIES = 3
 RETRY_DELAY = 1.0  # Increased delay between retries
@@ -41,6 +42,9 @@ MAX_CONSECUTIVE_DETECTIONS = 3  # Limit consecutive detections
 # Add detection tracking
 consecutive_detections = 0
 last_detection_class = None
+
+# Variabel untuk melacak waktu deteksi terakhir
+last_detection_time = time.time() - 60  # Init to allow immediate first detection
 
 # Update color mapping for two classes
 COLORS = {
@@ -135,13 +139,14 @@ def detect_from_frame(frame, app=None):
                 cv2.putText(frame, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 
                            0.6, (255, 255, 255), 2)
 
-        # Handle sound triggers for best detection
+        # Handle sound triggers and Telegram alerts for best detection
         if best_detection is not None:
             class_id = int(best_detection.cls.item())
             class_name = model.names[class_id]
             
             # Direct mapping since model already uses "orang" and "kendaraan"
-            if class_name in ["orang", "kendaraan"] and current_time - last_detection_time >= DETECTION_COOLDOWN:
+            if class_name in ["orang", "kendaraan"]:
+                # Play sound locally via ESP32
                 try:
                     detect_url = f"http://{ESP_IP}/detect?class={class_name}"
                     detect_response = requests.get(detect_url, timeout=1)
@@ -154,7 +159,23 @@ def detect_from_frame(frame, app=None):
                             
                         last_detection_time = current_time
                         last_detection_class = class_name
-                        print(f"🔊 Alert sent: {class_name} ({best_confidence:.2f})")
+                        print(f"🔊 Alert played: {class_name} ({best_confidence:.2f})")
+                        
+                        # Log activity if app context is available
+                        if app:
+                            with app.app_context():
+                                from app import log_activity
+                                log_activity(f'Deteksi {class_name}', 
+                                           f'Confidence: {best_confidence:.2f}', 
+                                           'detection')
+                                
+                        # Send Telegram notification
+                        cooldown_satisfied = current_time - last_detection_time >= DETECTION_COOLDOWN
+                        if cooldown_satisfied:
+                            message = f"⚠️ <b>DETEKSI {class_name.upper()}</b>\n" \
+                                     f"🔍 Kepastian: {best_confidence:.2f}\n" \
+                                     f"⏰ Waktu: {time.strftime('%H:%M:%S')}"
+                            send_telegram_alert(message)
                         
                 except Exception as e:
                     print(f"❌ Failed to send alert: {str(e)}")

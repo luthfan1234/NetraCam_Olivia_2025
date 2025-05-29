@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 import requests
 from datetime import datetime
 import time
@@ -15,7 +15,7 @@ cached_gps_data = {'lat': DEFAULT_LAT, 'lon': DEFAULT_LON, 'timestamp': 0}
 GPS_CACHE_DURATION = 2  # seconds
 
 # ESP32 IP configuration - must match app.py
-ESP_IP = "192.168.175.173"
+ESP_IP = "192.168.130.173"  # Update to match app.py
 GPS_ENDPOINT = f"http://{ESP_IP}/gps"
 
 # Function to get latest valid GPS coordinates
@@ -30,48 +30,78 @@ def latest_gps():
     
     try:
         # Query ESP32 for GPS data
-        response = requests.get(GPS_ENDPOINT, timeout=3)
+        print(f"📍 Fetching GPS data from: {GPS_ENDPOINT}")  # Add debug output
+        response = requests.get(GPS_ENDPOINT, timeout=5)  # Increase timeout
         
         if response.ok:
-            data = response.json()
+            data = response.text
+            print(f"📍 GPS response: {data}")  # Add debug output
             
-            # Check if GPS has valid data (some reasonable bounds)
-            lat = float(data.get('lat', DEFAULT_LAT))
-            lon = float(data.get('lon', DEFAULT_LON))
+            # Check if response is GPS_NOT_FIX
+            if data == "GPS_NOT_FIX":
+                print(f"⚠️ GPS reports no fix")
+                return cached_gps_data['lat'], cached_gps_data['lon']
+                
+            # Check if the response contains comma (lat,lon format)
+            if ',' in data:
+                coords = data.split(',')
+                if len(coords) == 2:
+                    try:
+                        lat = float(coords[0].strip())
+                        lon = float(coords[1].strip())
+                        
+                        # Indonesia-specific reasonable bounds check
+                        if (-11 <= lat <= 6) and (95 <= lon <= 141) and (lat != 0 and lon != 0):
+                            # If coordinates are valid and different from previous, log it
+                            if (abs(lat - cached_gps_data['lat']) > 0.0001 or 
+                                abs(lon - cached_gps_data['lon']) > 0.0001):
+                                
+                                # New valid location found, try to log activity
+                                try:
+                                    with current_app.app_context():
+                                        from app import log_activity
+                                        log_activity('GPS Updated', f'New coordinates: {lat}, {lon}', 'gps')
+                                except Exception as e:
+                                    print(f"Could not log GPS activity: {e}")
+                                
+                                print(f"✅ Valid GPS data received: {lat}, {lon}")
+                            
+                            # Update cache with new coordinates
+                            cached_gps_data = {
+                                'lat': lat,
+                                'lon': lon,
+                                'timestamp': current_time
+                            }
+                            last_gps_update = current_time
+                            return lat, lon  # Return the valid coordinates immediately
+                    except Exception as e:
+                        print(f"❌ Error parsing GPS data: {e}")
             
-            # Only update cache if values are reasonable and not defaults from ESP32
-            # Indonesia-specific reasonable bounds check
-            if (-11 <= lat <= 6) and (95 <= lon <= 141) and (lat != 0 and lon != 0):
-                cached_gps_data = {
-                    'lat': lat,
-                    'lon': lon,
-                    'timestamp': current_time
-                }
-                last_gps_update = current_time
-                print(f"✅ Valid GPS data received: {lat}, {lon}")
-            else:
-                # Jika koordinat tidak valid, gunakan cache terakhir yang valid
-                # atau nilai default jika tidak ada cache valid
-                print(f"⚠️ Invalid GPS coordinates: {lat}, {lon} - Using last valid or default")
         else:
-            # Jika gagal mendapatkan respons, gunakan cache terakhir atau default
+            # If failed to get response, use cache or default
             print(f"⚠️ Failed to get GPS data: {response.status_code}")
             
     except Exception as e:
-        # Jika terjadi error, gunakan cache terakhir atau default
+        # If error occurs, use cache or default
         print(f"❌ GPS error: {e}")
     
-    # Return the current cached data (either updated or the last valid one)
-    # Jika tidak ada data GPS yang valid, ini akan mengembalikan koordinat default
+    # Return the current cached data
     return cached_gps_data['lat'], cached_gps_data['lon']
 
 @gps_bp.route('/gps')
 def get_gps():
     lat, lon = latest_gps()
+    
+    # Include detailed information for frontend
+    is_default = (abs(lat - DEFAULT_LAT) < 0.0001 and abs(lon - DEFAULT_LON) < 0.0001)
+    
+    # Format coordinates to 6 decimal places for consistency
     return jsonify({
-        'lat': lat, 
-        'lon': lon,
-        'timestamp': datetime.now().strftime('%H:%M:%S')
+        'lat': round(lat, 6), 
+        'lon': round(lon, 6),
+        'timestamp': datetime.now().strftime('%H:%M:%S'),
+        'is_default': is_default,
+        'valid': not is_default
     })
 
 @gps_bp.route('/track')
