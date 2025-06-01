@@ -20,7 +20,9 @@ from telegram_bot import (
     send_location_and_image, 
     update_interval,
     update_intervals,
-    get_current_interval
+    get_current_interval,
+    force_send_now,
+    set_default_gps_sending
 )
 
 # Global variables
@@ -162,34 +164,200 @@ def periodic_telegram_update():
     while True:
         try:
             lat, lon = latest_gps()
-            # Hanya kirim jika GPS valid (bukan koordinat default UNS)
-            if lat != DEFAULT_LAT or lon != DEFAULT_LON:
-                # Ambil gambar dari ESP32
-                image_url = f"http://{ESP_IP}/cam-hi.jpg"
-                
-                # Mencoba kirim lokasi dan gambar
-                success = send_location_and_image(lat, lon, image_url)
-                
-                if success:
-                    print(f"✅ Telegram update sent: Coordinates {lat}, {lon}")
-                    # Log aktivitas
-                    try:
-                        with app.app_context():
-                            log_activity('Lokasi Dikirim', f'Koordinat: {lat}, {lon}', 'telegram')
-                    except Exception as e:
-                        print(f"❌ Error logging activity: {e}")
-                else:
-                    # Periksa interval dan tampilkan informasi sisa waktu
-                    interval = get_current_interval()
-                    print(f"⏳ Telegram update scheduled every {interval}s - Will send next update when interval elapses")
+            
+            # Get image from ESP32 with cache-busting
+            timestamp = int(time.time())
+            image_url = f"http://{ESP_IP}/cam-hi.jpg?t={timestamp}"
+            
+            # Send location and image - simplified
+            success = send_location_and_image(lat, lon, image_url)
+            
+            if success:
+                print(f"✅ Telegram update sent at {datetime.now().strftime('%H:%M:%S')}")
             else:
-                print("⚠️ GPS coordinates invalid, skipping Telegram update")
+                print(f"⏳ Waiting for next Telegram update...")
                 
         except Exception as e:
             print(f"❌ Error in periodic Telegram update: {e}")
             
-        # Tunggu 30 detik sebelum mencoba lagi
-        time.sleep(30)  # Cek lebih sering (30 detik)
+        # Sleep for 30 seconds before checking again
+        time.sleep(30)
+
+@app.route('/api/settings/connection', methods=['POST'])
+@login_required
+def update_connection_settings():
+    try:
+        update_interval = request.form.get('update_interval', type=int)
+        if not 1 <= update_interval <= 60:
+            return jsonify({'error': 'Invalid update interval'}), 400
+        return jsonify({'message': 'Settings updated successfully'})
+    except Exception as e:
+        app.logger.error(f'Failed to update connection settings: {str(e)}')
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/api/settings/video', methods=['POST'])
+@login_required
+def update_video_settings():
+    try:
+        quality = request.form.get('quality', type=int)
+        fps = request.form.get('fps', type=int)
+        if quality not in [360, 480, 720]:
+            return jsonify({'error': 'Invalid quality setting'}), 400
+        if fps not in [15, 24, 30]:
+            return jsonify({'error': 'Invalid fps setting'}), 400
+        return jsonify({'message': 'Settings updated successfully'})
+    except Exception as e:
+        app.logger.error(f'Failed to update video settings: {str(e)}')
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/')
+@login_required
+def dashboard():
+    lat = -7.556
+    lon = 110.829
+    return render_template('index.html', lat=lat, lon=lon)
+
+@app.route('/history')
+@login_required
+def history():
+    return render_template('history.html')
+
+@app.route('/settings')
+@login_required
+def settings():
+    return render_template('settings.html')
+
+# ===== STREAM ROUTE =====
+@app.route('/video_feed')
+@login_required
+def video_feed():
+    def gen():
+        retries = 0
+        max_retries = 3
+        
+        while True:
+            if retries >= max_retries:
+                print("⚠️ Maximum retries reached, waiting 5 seconds...")
+                time.sleep(5)
+                retries = 0
+                
+            frame = fetch_frame()
+            if frame is None:
+                retries += 1
+                time.sleep(1)
+                continue
+                
+            try:
+                # Pass app instance to detect_from_frame
+                frame_with_detections = detect_from_frame(frame, app)
+                retries = 0
+                
+                _, buffer = cv2.imencode('.jpg', frame_with_detections)
+                frame_bytes = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            except Exception as e:
+                print(f"❌ Error in video feed: {str(e)}")
+                retries += 1
+                time.sleep(1)
+
+    return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+# ===== END STREAM =====
+
+def periodic_telegram_update():
+    while True:
+        try:
+            lat, lon = latest_gps()
+            
+            # Get image from ESP32 with cache-busting
+            image_url = f"http://{ESP_IP}/cam-hi.jpg"
+            
+            # Send location and image
+            success = send_location_and_image(lat, lon, image_url)
+            
+            if success:
+                print(f"✅ Telegram update sent at {datetime.now().strftime('%H:%M:%S')}")
+                try:
+                    with app.app_context():
+                        log_activity('Lokasi Dikirim', f'Koordinat: {lat:.6f}, {lon:.6f}', 'telegram')
+                except Exception as e:
+                    print(f"❌ Error logging activity: {e}")
+            else:
+                # Calculate time until next update
+                time_passed = time.time() - telegram_bot.last_location_sent
+                time_remaining = max(0, telegram_bot.current_interval - time_passed)
+                print(f"⏳ Next Telegram update in {int(time_remaining)} seconds")
+                
+        except Exception as e:
+            print(f"❌ Error in periodic Telegram update: {e}")
+            
+        # Sleep for 30 seconds before checking again
+        time.sleep(30)
+
+@app.route('/api/telegram-settings', methods=['POST'])
+@login_required
+def update_telegram_settings():
+    try:
+        data = request.get_json()
+        interval = int(data.get('interval', 120))  # Default to 2 minutes
+        allow_default_gps = data.get('allow_default_gps', True)
+        
+        # Update settings
+        set_default_gps_sending(allow_default_gps)
+        update_interval(interval)
+        
+        # Log the activity
+        log_activity('Pengaturan Telegram', 
+                    f'Interval: {interval}s, Allow Default GPS: {allow_default_gps}', 
+                    'settings')
+        
+        return jsonify({'message': 'Settings updated successfully'})
+    except Exception as e:
+        print(f"Error updating telegram settings: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/force-send', methods=['POST'])
+@login_required
+def force_telegram_send():
+    try:
+        # Force sending the notification immediately
+        force_send_now()
+        
+        # Manually trigger a notification right now with current data
+        lat, lon = latest_gps()
+        
+        # Get the latest high-quality image with cache busting
+        timestamp = int(time.time())
+        image_url = f"http://{ESP_IP}/cam-hi.jpg?t={timestamp}"
+        
+        print(f"Forcing telegram notification with image URL: {image_url}")
+        
+        # Check if using default GPS coordinates
+        is_default = (lat == DEFAULT_LAT and lon == DEFAULT_LON)
+        status = "Default Location (GPS belum fix)" if is_default else "Valid Location"
+        
+        # Create a thread to send the notification without blocking the response
+        send_thread = threading.Thread(
+            target=send_location_and_image,
+            args=(lat, lon, image_url),
+            daemon=True
+        )
+        send_thread.start()
+        
+        # Log activity
+        log_activity('Telegram Notification', f'Manual send triggered: {lat:.6f}, {lon:.6f} ({status})', 'telegram')
+        
+        return jsonify({
+            'message': 'Notification sending triggered',
+            'coordinates': f'{lat:.6f}, {lon:.6f}',
+            'status': status,
+            'image_url': image_url,
+            'timestamp': datetime.now().strftime('%H:%M:%S')
+        })
+    except Exception as e:
+        print(f"Error forcing telegram send: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/device-status')
 def device_status():

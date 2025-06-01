@@ -23,7 +23,7 @@ except Exception as e:
     raise Exception(f"Failed to load YOLO model: {str(e)}")
 CONF_THRESHOLD = 0.5
 # Update ESP settings to match GPS routes
-ESP_IP = "192.168.130.173"
+ESP_IP = "192.168.211.173"
 TIMEOUT = 5  # Increased timeout
 MAX_RETRIES = 3
 RETRY_DELAY = 1.0  # Increased delay between retries

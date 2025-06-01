@@ -157,11 +157,11 @@ struct AudioManager {
         
         // Play appropriate file dengan timing yang disesuaikan
         if (detectionClass == "orang") {
-            dfplayer.play(2);
+            dfplayer.play(1);
             expectedDuration = PERSON_DURATION;
             debugLog("🎵 MEMUTAR: 'Hati-hati ada pejalan kaki di depan kamu' (001.mp3)");
         } else if (detectionClass == "kendaraan") {
-            dfplayer.play(1);
+            dfplayer.play(2);
             expectedDuration = VEHICLE_DURATION;
             debugLog("🎵 MEMUTAR: 'Pelan-pelan disekitarmu ada kendaraan' (002.mp3)");
         } else {
@@ -311,6 +311,9 @@ void serveJpg() {
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Access-Control-Allow-Methods", "GET");
     server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    server.sendHeader("Pragma", "no-cache");
+    server.sendHeader("Expires", "0");
     
     server.setContentLength(frame->size());
     server.send(200, "image/jpeg");

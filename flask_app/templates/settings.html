@@ -56,18 +56,41 @@
           name="telegram_interval" 
           class="w-full p-3 bg-gray-800 border border-green-500/30 rounded-lg text-white focus:outline-none focus:border-green-400"
         >
+          <option value="120" selected>Setiap 2 menit</option>
           <option value="300">Setiap 5 menit</option>
           <option value="600">Setiap 10 menit</option>
           <option value="1800">Setiap 30 menit</option>
         </select>
         <p class="text-xs text-gray-400 mt-1">Update lebih sering menggunakan lebih banyak data</p>
       </div>
+      
+      <div class="flex items-center space-x-2">
+        <input 
+          type="checkbox" 
+          id="allow-default-gps" 
+          name="allow_default_gps" 
+          class="w-4 h-4 accent-green-500"
+          checked
+        >
+        <label for="allow-default-gps" class="text-gray-300 text-sm">Kirim Notifikasi dengan GPS Default</label>
+      </div>
+      <p class="text-xs text-gray-400 mt-1">Aktifkan untuk terus mengirim notifikasi meskipun GPS tidak mendapatkan fix</p>
+      
       <button 
         type="submit"
         id="telegram-submit" 
         class="w-full px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors font-medium"
       >
         Perbarui Pengaturan
+      </button>
+      
+      <button 
+        type="button"
+        id="force-send-button" 
+        class="w-full px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
+        onclick="forceSendNotification()"
+      >
+        Kirim Notifikasi Sekarang
       </button>
     </form>
   </div>
@@ -85,6 +108,7 @@ async function handleCameraSubmit(e) {
   e.preventDefault();
   
   try {
+    const quality = document.getElementById('camera-quality').value;
     const formData = new FormData(e.target);
     // Tambahkan CSRF token ke header
     const response = await fetch(`/cam-${quality}.jpg`, {
@@ -118,15 +142,19 @@ async function handleNotificationSubmit(e) {
   try {
     const formData = new FormData(e.target);
     const interval = formData.get('telegram_interval');
+    const allowDefaultGps = document.getElementById('allow-default-gps').checked;
     
-    // Perbaikan: Ekstrak nilai interval dari form dengan benar
-    const response = await fetch('/api/telegram-interval', {
+    // Update settings dengan parameter baru
+    const response = await fetch('/api/telegram-settings', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRFToken': '{{ csrf_token() }}'
       },
-      body: JSON.stringify({ interval: interval }) // Pastikan kunci "interval" sesuai dengan yang diharapkan oleh backend
+      body: JSON.stringify({ 
+        interval: interval,
+        allow_default_gps: allowDefaultGps
+      })
     });
     
     if (!response.ok) {
@@ -141,6 +169,36 @@ async function handleNotificationSubmit(e) {
     // Reset button state
     button.disabled = false;
     button.textContent = originalText;
+  }
+}
+
+async function forceSendNotification() {
+  try {
+    const button = document.getElementById('force-send-button');
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Mengirim...';
+    
+    const response = await fetch('/api/force-send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': '{{ csrf_token() }}'
+      }
+    });
+    
+    if (response.ok) {
+      window.showToast('Notifikasi sedang dikirim', 'success');
+    } else {
+      throw new Error('Failed to send notification');
+    }
+  } catch (error) {
+    console.error('Force send error:', error);
+    window.showToast('Gagal mengirim notifikasi', 'error');
+  } finally {
+    const button = document.getElementById('force-send-button');
+    button.disabled = false;
+    button.textContent = 'Kirim Notifikasi Sekarang';
   }
 }
 </script>

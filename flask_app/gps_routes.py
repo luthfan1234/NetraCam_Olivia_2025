@@ -15,7 +15,7 @@ cached_gps_data = {'lat': DEFAULT_LAT, 'lon': DEFAULT_LON, 'timestamp': 0}
 GPS_CACHE_DURATION = 2  # seconds
 
 # ESP32 IP configuration - must match app.py
-ESP_IP = "192.168.130.173"  # Update to match app.py
+ESP_IP = "192.168.211.173"  # Update to match app.py
 GPS_ENDPOINT = f"http://{ESP_IP}/gps"
 
 # Function to get latest valid GPS coordinates
@@ -92,8 +92,8 @@ def latest_gps():
 def get_gps():
     lat, lon = latest_gps()
     
-    # Include detailed information for frontend
-    is_default = (abs(lat - DEFAULT_LAT) < 0.0001 and abs(lon - DEFAULT_LON) < 0.0001)
+    # Check if the coordinates are exactly the default values (UNS coordinates)
+    is_default = (lat == DEFAULT_LAT and lon == DEFAULT_LON)
     
     # Format coordinates to 6 decimal places for consistency
     return jsonify({
@@ -101,7 +101,8 @@ def get_gps():
         'lon': round(lon, 6),
         'timestamp': datetime.now().strftime('%H:%M:%S'),
         'is_default': is_default,
-        'valid': not is_default
+        'valid': not is_default,
+        'status': 'GPS belum fix (menggunakan lokasi default)' if is_default else 'GPS valid'
     })
 
 @gps_bp.route('/track')
