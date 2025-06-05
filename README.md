@@ -5,6 +5,7 @@ Proyek ini adalah implementasi sistem kacamata pintar untuk tunanetra tanpa meng
 ##link Penting
 DEMONSTRASI= https://drive.google.com/file/d/1SJvulrBCWyIuGLERdwOaYhZCtlzJSOu9/view?usp=sharing
 PROPOSAL=
+DOKUMENTASI TEKNIS PDF= 
 
 ## 📋 Fitur
 
