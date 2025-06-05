@@ -3,9 +3,9 @@
 Proyek ini adalah implementasi sistem kacamata pintar untuk tunanetra tanpa menggunakan protokol MQTT. Sistem menggunakan ESP32-CAM untuk menangkap gambar, modul GPS (Ublox NEO-6M) untuk pelacakan lokasi, DFPlayer Mini untuk output suara, serta server Flask dengan YOLOv8 untuk deteksi objek dan dashboard web.
 
 ##link Penting
-DEMONSTRASI= https://drive.google.com/file/d/1SJvulrBCWyIuGLERdwOaYhZCtlzJSOu9/view?usp=sharing
-PROPOSAL=
-DOKUMENTASI TEKNIS PDF= 
+* DEMONSTRASI= https://drive.google.com/file/d/1SJvulrBCWyIuGLERdwOaYhZCtlzJSOu9/view?usp=sharing
+* PROPOSAL=
+* DOKUMENTASI TEKNIS PDF= https://drive.google.com/file/d/1w9c00P0NJfJb24X5gQKSTTGFI1dsNn9x/view?usp=sharing 
 
 ## 📋 Fitur
 
