@@ -15,7 +15,7 @@ cached_gps_data = {'lat': DEFAULT_LAT, 'lon': DEFAULT_LON, 'timestamp': 0}
 GPS_CACHE_DURATION = 2  # seconds
 
 # ESP32 IP configuration - must match app.py
-ESP_IP = "192.168.211.173"  # Update to match app.py
+ESP_IP = "192.168.255.173"  # Update to match app.py
 GPS_ENDPOINT = f"http://{ESP_IP}/gps"
 
 # Function to get latest valid GPS coordinates

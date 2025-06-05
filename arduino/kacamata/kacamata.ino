@@ -102,7 +102,7 @@ struct AudioManager {
         return item;
     }
     
-    // Check if we can play a sound (cooldown logic)
+    // Check if we can play a sound (cooldown logic) - FIXED
     bool canPlay(String detectionClass) {
         unsigned long currentTime = millis();
         
@@ -111,22 +111,36 @@ struct AudioManager {
             return false;
         }
         
-        // Check cooldown
+        // First time playing, no cooldown
+        if (lastPlayTime == 0) {
+            debugLog("First time playing, no cooldown applied");
+            return true;
+        }
+        
+        // Check cooldown with fixed logic
         if (lastPlayedClass == detectionClass) {
-            if (currentTime - lastPlayTime < COOLDOWN_SAME_CLASS) {
-                unsigned long remaining = COOLDOWN_SAME_CLASS - (currentTime - lastPlayTime);
+            unsigned long elapsed = currentTime - lastPlayTime;
+            if (elapsed < COOLDOWN_SAME_CLASS) {
+                unsigned long remaining = COOLDOWN_SAME_CLASS - elapsed;
                 debugLog("Cooldown aktif untuk " + detectionClass + ", sisa: " + String(remaining/1000) + "s");
                 return false;
             }
+            
+            // Cooldown expired, can play
+            debugLog("Cooldown untuk " + detectionClass + " sudah habis, boleh play");
+            return true;
         } else {
-            if (currentTime - lastPlayTime < COOLDOWN_DIFFERENT_CLASS) {
-                unsigned long remaining = COOLDOWN_DIFFERENT_CLASS - (currentTime - lastPlayTime);
+            unsigned long elapsed = currentTime - lastPlayTime;
+            if (elapsed < COOLDOWN_DIFFERENT_CLASS) {
+                unsigned long remaining = COOLDOWN_DIFFERENT_CLASS - elapsed;
                 debugLog("Cooldown antar-kelas aktif, sisa: " + String(remaining/1000) + "s");
                 return false;
             }
+            
+            // Different class cooldown expired, can play
+            debugLog("Cooldown antar kelas sudah habis, boleh play");
+            return true;
         }
-        
-        return true;
     }
     
     // Start playing a sound
@@ -278,6 +292,22 @@ struct AudioManager {
         
         return status;
     }
+    
+    // Add method to clear the queue
+    void clearQueue() {
+        queueHead = queueTail;  // Reset queue pointers to empty the queue
+        debugLog("Queue dibersihkan");
+    }
+    
+    // Reset all audio state
+    void resetState() {
+        isPlaying = false;
+        currentClass = "";
+        lastPlayedClass = "";
+        lastPlayTime = 0;  // Reset the cooldown timer
+        clearQueue();
+        debugLog("Audio state reset completely");
+    }
 };
 
 // Global audio manager instance
@@ -311,9 +341,6 @@ void serveJpg() {
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Access-Control-Allow-Methods", "GET");
     server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
-    server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-    server.sendHeader("Pragma", "no-cache");
-    server.sendHeader("Expires", "0");
     
     server.setContentLength(frame->size());
     server.send(200, "image/jpeg");
@@ -616,8 +643,7 @@ void loop() {
         }
         else if (input == 'r') {
             Serial.println("🔄 Resetting audio system...");
-            audioMgr.isPlaying = false;
-            audioMgr.currentClass = "";
+            audioMgr.resetState();  // Use the new resetState method
             dfplayer.stop();
             delay(500);
             dfplayer.reset();
@@ -625,14 +651,19 @@ void loop() {
             dfplayer.volume(28);
             Serial.println("✅ Audio system reset completed");
         }
+        else if (input == 'q') {
+            // Add a command to clear just the queue
+            audioMgr.clearQueue();
+            Serial.println("🧹 Queue cleared");
+        }
     }
 
-    // === Handle Detection Audio ===
-    if (dfplayer_ready && !audioMgr.isPlaying) {
-        // Check for incoming detections through HTTP
+    // === Process more server requests per loop to avoid backlog ===
+    for (int i = 0; i < 3; i++) {
         server.handleClient();
+        delay(5);  // Small delay between handling requests
     }
-
+    
     // === Audio Management ===
     audioMgr.updatePlaybackStatus();  // Check if current sound finished
     audioMgr.processQueue();          // Process queued detections

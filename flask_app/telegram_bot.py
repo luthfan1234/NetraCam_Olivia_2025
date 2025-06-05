@@ -10,8 +10,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Konfigurasi Bot
-BOT_TOKEN = ''  # Ganti dengan token bot Anda
-CHAT_ID = ''  # Ganti dengan chat ID tujuan
+BOT_TOKEN = '7718703590:AAGcUryDq5evkLJ6dLiGfMiobACKMPO1csE'  # Ganti dengan token bot Anda
+CHAT_ID = '1193580325'  # Ganti dengan chat ID tujuan
 BASE_URL = f'https://api.telegram.org/bot{BOT_TOKEN}'
 
 # Interval default
@@ -67,6 +67,9 @@ def send_location_and_image(lat, lon, image_url=None):
         logger.info(f"⏳ Menunggu interval ({current_interval}s), sisa: {int(current_interval - time_since_last)}s")
         return False
     
+    # Set last_location_sent at the beginning to prevent concurrent sends
+    last_location_sent = current_time
+    
     # Cek apakah koordinat default (misalnya dari UNS)
     is_default_gps = lat == -7.5594794 and lon == 110.856853464304
     
@@ -77,7 +80,34 @@ def send_location_and_image(lat, lon, image_url=None):
         
     try:
         # Format timestamp untuk lebih mudah dibaca
-        timestamp = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+        timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        
+        # Tentukan status GPS
+        gps_status = "📍 GPS Valid" if not is_default_gps else "⚠️ GPS Belum Fix (Lokasi Default)"
+        
+        # Buat pesan teks informasi
+        location_text = f"""🔍 <b>NETRACAM UPDATE</b>
+
+📅 <b>Waktu:</b> {timestamp}
+{gps_status}
+🌐 <b>Koordinat:</b> {lat:.6f}, {lon:.6f}
+📡 <b>Interval:</b> {current_interval} detik
+
+{'🏢 Menggunakan koordinat Universitas Sebelas Maret' if is_default_gps else '✅ Lokasi real-time dari GPS'}"""
+
+        # Kirim pesan teks terlebih dahulu
+        text_url = f'{BASE_URL}/sendMessage'
+        text_data = {
+            'chat_id': CHAT_ID,
+            'text': location_text,
+            'parse_mode': 'HTML'
+        }
+        
+        text_response = requests.post(text_url, data=text_data)
+        if not text_response.ok:
+            logger.error(f"❌ Failed to send text message: {text_response.text}")
+        else:
+            logger.info("✅ Text message sent")
         
         # Kirim lokasi (tanpa teks tambahan)
         location_url = f'{BASE_URL}/sendLocation'
@@ -95,15 +125,31 @@ def send_location_and_image(lat, lon, image_url=None):
             
         logger.info(f"✅ Location sent: {lat}, {lon}")
 
-        # Kirim gambar jika tersedia (dengan caption yang lebih informatif)
+        # Kirim gambar jika tersedia
         if image_url:
             try:
                 # Add cache-busting parameter to URL
                 cache_buster = int(time.time())
-                img_url_with_cache = f"{image_url}?_cb={cache_buster}"
+                if '?' in image_url:
+                    img_url_with_cache = f"{image_url}&_cb={cache_buster}"
+                else:
+                    img_url_with_cache = f"{image_url}?_cb={cache_buster}"
                 
-                # Get the image
-                img_response = requests.get(img_url_with_cache, timeout=10)
+                # Log the URL we're fetching from
+                logger.info(f"📸 Fetching image from: {img_url_with_cache}")
+                
+                # Add headers to avoid caching issues
+                headers = {
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
+                }
+                
+                # Fetch the image with longer timeout
+                img_response = requests.get(img_url_with_cache, timeout=10, headers=headers)
+                
+                # Log response details
+                logger.info(f"📊 Image response status: {img_response.status_code}, size: {len(img_response.content) if img_response.ok else 0} bytes")
                 
                 if img_response.status_code == 200 and len(img_response.content) > 1000:
                     # Create BytesIO object
@@ -114,27 +160,12 @@ def send_location_and_image(lat, lon, image_url=None):
                     }
                     photo_url = f"{BASE_URL}/sendPhoto"
                     
-                    # Enhanced caption with more information
-                    location_type = "Lokasi Default (UNS)" if (lat == -7.5594794 and lon == 110.856853464304) else "Lokasi Real-Time"
-                    
-                    # Format latitude and longitude with north/south, east/west indicators
-                    lat_direction = "S" if lat < 0 else "N"
-                    lon_direction = "E" if lon > 0 else "W"
-                    formatted_lat = f"{abs(lat):.6f}° {lat_direction}"
-                    formatted_lon = f"{abs(lon):.6f}° {lon_direction}"
-                    
-                    photo_caption = (
-                        f"📸 *KACAMATA NETRACAM*\n\n"
-                        f"⏰ Waktu: {timestamp}\n"
-                        f"📍 {location_type}\n"
-                        f"🧭 Koordinat: {formatted_lat}, {formatted_lon}\n"
-                        f"🔄 Update berikutnya dalam {current_interval//60} menit"
-                    )
+                    # Caption dengan informasi detail
+                    photo_caption = f"📷 Live Camera Feed\n🕐 {timestamp}\n📍 {gps_status.replace('📍 ', '').replace('⚠️ ', '')}"
                     
                     photo_data = {
                         'chat_id': CHAT_ID,
-                        'caption': photo_caption,
-                        'parse_mode': 'Markdown'
+                        'caption': photo_caption
                     }
                     
                     # Send photo to Telegram
@@ -149,12 +180,11 @@ def send_location_and_image(lat, lon, image_url=None):
             except Exception as e:
                 logger.error(f"❌ Error getting or sending image: {str(e)}")
                 
-        # Update waktu terakhir kirim lokasi
-        last_location_sent = current_time
         return True
 
     except Exception as e:
         logger.error(f"❌ Failed to send Telegram update: {str(e)}")
+        # We don't reset last_location_sent on error to prevent constant retries
         return False
 
 def update_interval(new_interval):

@@ -109,14 +109,19 @@ async function handleCameraSubmit(e) {
   
   try {
     const quality = document.getElementById('camera-quality').value;
-    const formData = new FormData(e.target);
-    // Tambahkan CSRF token ke header
+    
+    // Show loading state
+    const button = document.getElementById('camera-submit');
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Memproses...';
+    
+    // Make the request directly to the camera endpoint
     const response = await fetch(`/cam-${quality}.jpg`, {
-      method: 'POST',
+      method: 'GET',  // Changed from POST to GET to match server implementation
       headers: {
         'X-CSRFToken': '{{ csrf_token() }}'
-      },
-      body: formData
+      }
     });
     
     if (!response.ok) {
@@ -127,6 +132,11 @@ async function handleCameraSubmit(e) {
   } catch (error) {
     console.error('Camera settings error:', error);
     window.showToast('Gagal memperbarui pengaturan kamera. Silakan coba lagi.', 'error');
+  } finally {
+    // Reset button state
+    const button = document.getElementById('camera-submit');
+    button.disabled = false;
+    button.textContent = 'Terapkan Pengaturan';
   }
 }
 

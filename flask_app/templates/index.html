@@ -83,6 +83,17 @@
       box-shadow: 0 0 0 0 rgba(248, 113, 113, 0);
     }
   }
+  
+  /* Loading spinner and error handling improvements */
+  #camera-error, #map-error {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(17, 24, 39, 0.8);
+    z-index: 10;
+  }
 </style>
 {% endblock %}
 
@@ -329,6 +340,8 @@
       // Format coordinates to 6 decimal places with proper spacing
       document.getElementById('current-lat').textContent = gpsData.lat.toFixed(6);
       document.getElementById('current-lon').textContent = gpsData.lon.toFixed(6);
+      document.getElementById('map-lat').textContent = gpsData.lat.toFixed(6);
+      document.getElementById('map-lon').textContent = gpsData.lon.toFixed(6);
       
       // Check if coordinates are valid (not default)
       isDefaultPosition = gpsData.is_default;
@@ -347,16 +360,6 @@
         if (distance > 10) { // only pan if moved more than 10 meters
           map.panTo([gpsData.lat, gpsData.lon]);
         }
-        
-        // Also update the coordinates in the map overlay
-        document.getElementById('map-lat').textContent = gpsData.lat.toFixed(6);
-        document.getElementById('map-lon').textContent = gpsData.lon.toFixed(6);
-        
-        // Add a footer display at the bottom of the map that shows current coordinates cleanly
-        const footerDisplay = document.createElement('div');
-        footerDisplay.className = 'absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-center py-1 text-xs';
-        footerDisplay.innerHTML = `Koordinat: <b>${gpsData.lat.toFixed(6)}, ${gpsData.lon.toFixed(6)}</b>`;
-        
       } else {
         gpsQualityElement.innerHTML = '<i class="fas fa-exclamation-triangle text-yellow-400 mr-1"></i><span class="text-yellow-300">Menunggu GPS Fix</span>';
       }
@@ -431,11 +434,11 @@
     }
   }
   
-  function handleCameraError() {
+  async function handleCameraError() {
     document.getElementById('camera-loading').style.display = 'none';
     document.getElementById('camera-feed').style.display = 'none';
     document.getElementById('camera-error').style.display = 'flex';
-    window.showToast && window.showToast('Kamera tidak tersedia', 'error');
+    console.error('Camera feed failed to load');
   }
   
   function reloadCameraFeed() {
@@ -445,7 +448,8 @@
     
     // Reload the image with a cache-busting parameter
     const img = document.getElementById('camera-feed');
-    img.src = `{{ url_for('video_feed') }}?t=${new Date().getTime()}`;
+    const timestamp = new Date().getTime();
+    img.src = `{{ url_for('video_feed') }}?t=${timestamp}`;
     img.style.display = 'block';
   }
 </script>

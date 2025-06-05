@@ -4,15 +4,14 @@ from flask_login import LoginManager, login_required, current_user
 from flask_wtf.csrf import CSRFProtect
 from models import db, User, ActivityLog
 from auth import auth_bp
-from gps_routes import gps_bp, latest_gps
+from yolo_infer import fetch_frame, detect_from_frame, get_gps_coordinates
 from datetime import timedelta, datetime
 import json
 import requests
-import threading  # Perbaikan: tambahkan import threading
+import threading
 
 # YOLO + Kamera
 import cv2
-from yolo_infer import fetch_frame, detect_from_frame
 import time
 
 # Telegram
@@ -26,7 +25,7 @@ from telegram_bot import (
 )
 
 # Global variables
-ESP_IP = "192.168.130.173"  # Update this to match your ESP32's actual IP address
+ESP_IP = "192.168.255.173"  # Update to match gps_routes.py
 last_status_check = datetime.now()
 cached_status = None
 STATUS_CACHE_DURATION = timedelta(minutes=2)
@@ -61,7 +60,6 @@ def load_user(user_id):
     return db.session.get(User, int(user_id))
 
 app.register_blueprint(auth_bp, url_prefix='/auth')
-app.register_blueprint(gps_bp)
 
 with app.app_context():
     db.create_all()
@@ -131,18 +129,18 @@ def video_feed():
         max_retries = 3
         
         while True:
-            if retries >= max_retries:
-                print("⚠️ Maximum retries reached, waiting 5 seconds...")
-                time.sleep(5)
-                retries = 0
-                
-            frame = fetch_frame()
-            if frame is None:
-                retries += 1
-                time.sleep(1)
-                continue
-                
             try:
+                if retries >= max_retries:
+                    print("⚠️ Maximum retries reached, waiting 5 seconds...")
+                    time.sleep(5)
+                    retries = 0
+                    
+                frame = fetch_frame()
+                if frame is None:
+                    retries += 1
+                    time.sleep(1)
+                    continue
+                    
                 # Pass app instance to detect_from_frame
                 frame_with_detections = detect_from_frame(frame, app)
                 retries = 0
@@ -155,123 +153,37 @@ def video_feed():
                 print(f"❌ Error in video feed: {str(e)}")
                 retries += 1
                 time.sleep(1)
-
+    
     return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 # ===== END STREAM =====
 
+@app.route('/gps')
+def get_gps():
+    lat, lon = get_gps_coordinates()
+    
+    # Check if the coordinates are exactly the default values (UNS coordinates)
+    is_default = (lat == DEFAULT_LAT and lon == DEFAULT_LON)
+    
+    # Format coordinates to 6 decimal places for consistency
+    return jsonify({
+        'lat': round(lat, 6), 
+        'lon': round(lon, 6),
+        'timestamp': datetime.now().strftime('%H:%M:%S'),
+        'is_default': is_default,
+        'valid': not is_default,
+        'status': 'GPS belum fix (menggunakan lokasi default)' if is_default else 'GPS valid'
+    })
+
 def periodic_telegram_update():
     while True:
         try:
-            lat, lon = latest_gps()
+            # Use the new GPS integration
+            lat, lon = get_gps_coordinates()
             
             # Get image from ESP32 with cache-busting
             timestamp = int(time.time())
             image_url = f"http://{ESP_IP}/cam-hi.jpg?t={timestamp}"
-            
-            # Send location and image - simplified
-            success = send_location_and_image(lat, lon, image_url)
-            
-            if success:
-                print(f"✅ Telegram update sent at {datetime.now().strftime('%H:%M:%S')}")
-            else:
-                print(f"⏳ Waiting for next Telegram update...")
-                
-        except Exception as e:
-            print(f"❌ Error in periodic Telegram update: {e}")
-            
-        # Sleep for 30 seconds before checking again
-        time.sleep(30)
-
-@app.route('/api/settings/connection', methods=['POST'])
-@login_required
-def update_connection_settings():
-    try:
-        update_interval = request.form.get('update_interval', type=int)
-        if not 1 <= update_interval <= 60:
-            return jsonify({'error': 'Invalid update interval'}), 400
-        return jsonify({'message': 'Settings updated successfully'})
-    except Exception as e:
-        app.logger.error(f'Failed to update connection settings: {str(e)}')
-        return jsonify({'error': 'Internal server error'}), 500
-
-@app.route('/api/settings/video', methods=['POST'])
-@login_required
-def update_video_settings():
-    try:
-        quality = request.form.get('quality', type=int)
-        fps = request.form.get('fps', type=int)
-        if quality not in [360, 480, 720]:
-            return jsonify({'error': 'Invalid quality setting'}), 400
-        if fps not in [15, 24, 30]:
-            return jsonify({'error': 'Invalid fps setting'}), 400
-        return jsonify({'message': 'Settings updated successfully'})
-    except Exception as e:
-        app.logger.error(f'Failed to update video settings: {str(e)}')
-        return jsonify({'error': 'Internal server error'}), 500
-
-@app.route('/')
-@login_required
-def dashboard():
-    lat = -7.556
-    lon = 110.829
-    return render_template('index.html', lat=lat, lon=lon)
-
-@app.route('/history')
-@login_required
-def history():
-    return render_template('history.html')
-
-@app.route('/settings')
-@login_required
-def settings():
-    return render_template('settings.html')
-
-# ===== STREAM ROUTE =====
-@app.route('/video_feed')
-@login_required
-def video_feed():
-    def gen():
-        retries = 0
-        max_retries = 3
-        
-        while True:
-            if retries >= max_retries:
-                print("⚠️ Maximum retries reached, waiting 5 seconds...")
-                time.sleep(5)
-                retries = 0
-                
-            frame = fetch_frame()
-            if frame is None:
-                retries += 1
-                time.sleep(1)
-                continue
-                
-            try:
-                # Pass app instance to detect_from_frame
-                frame_with_detections = detect_from_frame(frame, app)
-                retries = 0
-                
-                _, buffer = cv2.imencode('.jpg', frame_with_detections)
-                frame_bytes = buffer.tobytes()
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            except Exception as e:
-                print(f"❌ Error in video feed: {str(e)}")
-                retries += 1
-                time.sleep(1)
-
-    return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-# ===== END STREAM =====
-
-def periodic_telegram_update():
-    while True:
-        try:
-            lat, lon = latest_gps()
-            
-            # Get image from ESP32 with cache-busting
-            image_url = f"http://{ESP_IP}/cam-hi.jpg"
             
             # Send location and image
             success = send_location_and_image(lat, lon, image_url)
@@ -284,10 +196,9 @@ def periodic_telegram_update():
                 except Exception as e:
                     print(f"❌ Error logging activity: {e}")
             else:
-                # Calculate time until next update
-                time_passed = time.time() - telegram_bot.last_location_sent
-                time_remaining = max(0, telegram_bot.current_interval - time_passed)
-                print(f"⏳ Next Telegram update in {int(time_remaining)} seconds")
+                # Show interval info
+                interval = get_current_interval()
+                print(f"⏳ Telegram update scheduled every {interval}s - Will send next update when interval elapses")
                 
         except Exception as e:
             print(f"❌ Error in periodic Telegram update: {e}")
@@ -325,7 +236,7 @@ def force_telegram_send():
         force_send_now()
         
         # Manually trigger a notification right now with current data
-        lat, lon = latest_gps()
+        lat, lon = get_gps_coordinates()
         
         # Get the latest high-quality image with cache busting
         timestamp = int(time.time())
@@ -349,11 +260,12 @@ def force_telegram_send():
         log_activity('Telegram Notification', f'Manual send triggered: {lat:.6f}, {lon:.6f} ({status})', 'telegram')
         
         return jsonify({
-            'message': 'Notification sending triggered',
+            'message': 'Notification dengan teks, lokasi, dan gambar sedang dikirim',
             'coordinates': f'{lat:.6f}, {lon:.6f}',
             'status': status,
             'image_url': image_url,
-            'timestamp': datetime.now().strftime('%H:%M:%S')
+            'timestamp': datetime.now().strftime('%H:%M:%S'),
+            'includes': 'Text message + Location + Live camera image'
         })
     except Exception as e:
         print(f"Error forcing telegram send: {e}")
