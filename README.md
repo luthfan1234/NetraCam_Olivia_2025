@@ -255,8 +255,5 @@ Dashboard terdiri dari beberapa halaman:
 
 Dikembangkan oleh Tim Doa Ibu (NetraCam) - Universitas Sebelas Maret
 
-Ghaitsa Aulia Sakinah Wijaya (V8223011)
-Muhammad Fadhli Nur Luthfan (V3423055)
-Nayla Asri Yusviputri Ashani (V8223021)
-Nurfadila Cahyani (V8223023)
+
 
